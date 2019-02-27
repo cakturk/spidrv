@@ -11,6 +11,7 @@ import (
 	"periph.io/x/periph"
 	"periph.io/x/periph/conn/gpio"
 	"periph.io/x/periph/conn/gpio/gpioreg"
+	"periph.io/x/periph/conn/spi/spireg"
 	"periph.io/x/periph/host"
 )
 
@@ -95,12 +96,12 @@ func main() {
 
 	fmt.Printf("%v\n", s)
 
-	// // Use spireg SPI port registry to find the first available SPI bus.
-	// p, err := spireg.Open("")
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// defer p.Close()
+	// Use spireg SPI port registry to find the first available SPI bus.
+	p, err := spireg.Open("")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer p.Close()
 
 	// // Convert the spi.Port into a spi.Conn so it can be used for communication.
 	// c, err := p.Connect(physic.MegaHertz, spi.Mode3, 8)
