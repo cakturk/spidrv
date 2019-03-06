@@ -96,39 +96,37 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// fmt.Printf("%v\n", s)
-
 	// Use spireg SPI port registry to find the first available SPI bus.
 	p, err := spireg.Open("2")
 	if err != nil {
 		log.Fatal(err)
 	}
-	// defer p.Close()
+	defer p.Close()
 
 	// Convert the spi.Port into a spi.Conn so it can be used for communication.
-	c, err := p.Connect(100*physic.MegaHertz, spi.Mode3, 8)
+	c, err := p.Connect(500*physic.KiloHertz, spi.Mode1, 8)
 	if err != nil {
 		log.Fatal(err)
 	}
 	_ = c
 
-	wr := [3]byte{}
-	write := wr[:]
-	read := make([]byte, len(write))
+	write := []byte{0x10, 0x00}
+	read := make([]byte, 24)
 
 	r, ok := c.(io.Reader)
 	if !ok {
 		log.Fatal("interface conversion failed")
 	}
-	n, err := r.Read(write)
+	n, err := r.Read(read)
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("read %d bytes: %v\n", n, read)
+	fmt.Printf("read %d bytes: %#v\n", n, read)
+	os.Exit(0)
 
 	// Write 0x10 to the device, and read a byte right after.
 	// write := []byte{0x10, 0x00}
-	if err := c.Tx(nil, read); err != nil {
+	if err := c.Tx(write, read); err != nil {
 		log.Fatal(err)
 	}
 	// Use read.
