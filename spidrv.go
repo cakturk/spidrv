@@ -2,15 +2,18 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"periph.io/x/periph"
+	// "periph.io/x/periph"
 	"periph.io/x/periph/conn/gpio"
 	"periph.io/x/periph/conn/gpio/gpioreg"
+	"periph.io/x/periph/conn/physic"
+	"periph.io/x/periph/conn/spi"
 	"periph.io/x/periph/conn/spi/spireg"
 	"periph.io/x/periph/host"
 )
@@ -88,33 +91,47 @@ Loop:
 
 func main() {
 	// Make sure periph is initialized.
-	var s *periph.State
 	var err error
-	if s, err = host.Init(); err != nil {
+	if _, err = host.Init(); err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("%v\n", s)
+	// fmt.Printf("%v\n", s)
 
 	// Use spireg SPI port registry to find the first available SPI bus.
-	p, err := spireg.Open("")
+	p, err := spireg.Open("2")
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer p.Close()
+	// defer p.Close()
 
-	// // Convert the spi.Port into a spi.Conn so it can be used for communication.
-	// c, err := p.Connect(physic.MegaHertz, spi.Mode3, 8)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
+	// Convert the spi.Port into a spi.Conn so it can be used for communication.
+	c, err := p.Connect(100*physic.MegaHertz, spi.Mode3, 8)
+	if err != nil {
+		log.Fatal(err)
+	}
+	_ = c
 
-	// // Write 0x10 to the device, and read a byte right after.
+	wr := [3]byte{}
+	write := wr[:]
+	read := make([]byte, len(write))
+
+	r, ok := c.(io.Reader)
+	if !ok {
+		log.Fatal("interface conversion failed")
+	}
+	n, err := r.Read(write)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("read %d bytes: %v\n", n, read)
+
+	// Write 0x10 to the device, and read a byte right after.
 	// write := []byte{0x10, 0x00}
-	// read := make([]byte, len(write))
-	// if err := c.Tx(write, read); err != nil {
-	// 	log.Fatal(err)
-	// }
-	// // Use read.
-	// fmt.Printf("%v\n", read[1:])
+	if err := c.Tx(nil, read); err != nil {
+		log.Fatal(err)
+	}
+	// Use read.
+	fmt.Printf("%v\n", read[1:])
+	catchSignals(nil)
 }
