@@ -89,6 +89,28 @@ Loop:
 	fmt.Printf("Measured toggle freq is %0.3f Hz\n", freq)
 }
 
+func spiConnToReader(conn spi.Conn) (io.Reader, error) {
+	r, ok := conn.(io.Reader)
+	if !ok {
+		return nil, fmt.Errorf("spidrv: type is not io.Reader")
+	}
+	return r, nil
+}
+
+func uint24(b []byte) uint32 {
+	_ = b[2] // bounds check hint to compiler; see golang.org/issue/14808
+	return uint32(b[2]) | uint32(b[1])<<8 | uint32(b[0])<<16
+}
+
+func signExtend24to32(x uint32) uint32 {
+	// var b uint // number of bits representing the number in x
+	// m := uint32(0x01) << (b - 1) // mask can be pre-computed if b is fixed
+	m := uint32(0x800000)
+
+	// x = uint32(x) & ((uint32(1) << b) - 1) // (Skip this if bits in x above position b are already zero.)
+	return (x ^ m) - m
+}
+
 func main() {
 	// Make sure periph is initialized.
 	var err error
@@ -101,35 +123,23 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer p.Close()
+	// defer p.Close()
 
 	// Convert the spi.Port into a spi.Conn so it can be used for communication.
-	c, err := p.Connect(500*physic.KiloHertz, spi.Mode1, 8)
+	c, err := p.Connect(500*physic.KiloHertz, spi.Mode2, 8)
 	if err != nil {
 		log.Fatal(err)
 	}
 	_ = c
 
-	write := []byte{0x10, 0x00}
-	read := make([]byte, 24)
-
-	r, ok := c.(io.Reader)
-	if !ok {
-		log.Fatal("interface conversion failed")
-	}
-	n, err := r.Read(read)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("read %d bytes: %#v\n", n, read)
-	os.Exit(0)
+	// write := []byte{0x10, 0x00, 0x00}
+	write := [24]byte{}
+	read := make([]byte, len(write))
 
 	// Write 0x10 to the device, and read a byte right after.
 	// write := []byte{0x10, 0x00}
-	if err := c.Tx(write, read); err != nil {
+	if err := c.Tx(write[:], read); err != nil {
 		log.Fatal(err)
 	}
-	// Use read.
-	fmt.Printf("%v\n", read[1:])
-	catchSignals(nil)
+	fmt.Printf("b: %#v\n", read)
 }
