@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os"
 	"os/signal"
 	"syscall"
@@ -94,6 +95,21 @@ func spiConnToReader(conn spi.Conn) (io.Reader, error) {
 		return nil, fmt.Errorf("spidrv: type is not io.Reader")
 	}
 	return r, nil
+}
+
+// Min, max of integer types
+const (
+	MaxUint24 = math.MaxUint32 & 0x00ffffff
+	MaxInt24  = int32(MaxUint24 >> 1)
+	MinInt24  = -MaxInt24 - 1
+)
+
+func mapToInt16(i int32) int16 {
+	return int16(remap(int(i), int(MinInt24), int(MaxInt24), math.MinInt16, math.MaxInt16))
+}
+
+func remap(val, inMin, inMax, outMin, outMax int) int {
+	return (val-inMin)*(outMax-outMin)/(inMax-inMin) + outMin
 }
 
 func be24toCPU32(b []byte) uint32 {

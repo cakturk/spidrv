@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"testing"
 )
 
@@ -46,6 +47,22 @@ func TestSignExtend24to32(t *testing.T) {
 		got := signExtend24to32(u)
 		if got != want {
 			t.Errorf("got: %d, want: %d", got, want)
+		}
+	}
+}
+
+func TestMap(t *testing.T) {
+	cases := []struct {
+		in   int32
+		want int16
+	}{
+		{MinInt24, math.MinInt16},
+		{MaxInt24, math.MaxInt16},
+	}
+	for _, c := range cases {
+		got := mapToInt16(c.in)
+		if got != c.want {
+			t.Errorf("map(%d)=%d,  want: %d", c.in, got, c.want)
 		}
 	}
 }
