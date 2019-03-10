@@ -9,7 +9,6 @@ import (
 	"syscall"
 	"time"
 
-	// "periph.io/x/periph"
 	"periph.io/x/periph/conn/gpio"
 	"periph.io/x/periph/conn/gpio/gpioreg"
 	"periph.io/x/periph/conn/physic"
@@ -97,18 +96,20 @@ func spiConnToReader(conn spi.Conn) (io.Reader, error) {
 	return r, nil
 }
 
-func uint24(b []byte) uint32 {
+func be24toCPU32(b []byte) uint32 {
 	_ = b[2] // bounds check hint to compiler; see golang.org/issue/14808
 	return uint32(b[2]) | uint32(b[1])<<8 | uint32(b[0])<<16
 }
 
-func signExtend24to32(x uint32) uint32 {
-	// var b uint // number of bits representing the number in x
-	// m := uint32(0x01) << (b - 1) // mask can be pre-computed if b is fixed
-	m := uint32(0x800000)
+func le24toCPU32(b []byte) uint32 {
+	_ = b[2] // bounds check hint to compiler; see golang.org/issue/14808
+	return uint32(b[0]) | uint32(b[1])<<8 | uint32(b[2])<<16
+}
 
-	// x = uint32(x) & ((uint32(1) << b) - 1) // (Skip this if bits in x above position b are already zero.)
-	return (x ^ m) - m
+func signExtend24to32(x uint32) int32 {
+	// 0x01 << (b - 1)  mask for 24 bit integers
+	const mask = uint32(0x800000)
+	return int32((x ^ mask) - mask)
 }
 
 func main() {
@@ -141,5 +142,27 @@ func main() {
 	if err := c.Tx(write[:], read); err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("b: %#v\n", read)
+
+	i, j := 0, 3
+	var uints []uint32
+	for j <= len(read) {
+		h := read[i:j]
+		u := be24toCPU32(h)
+		uints = append(uints, u)
+		fmt.Printf("%#x ", u)
+		i, j = i+3, j+3
+	}
+	fmt.Println()
+	var ints []int32
+	for _, ui := range uints {
+		si := signExtend24to32(ui)
+		ints = append(ints, si)
+		fmt.Printf("%#x ", uint32(si))
+	}
+	fmt.Println()
+	for _, s := range ints {
+		fmt.Printf("%d ", s)
+	}
+	fmt.Println()
+	fmt.Printf("len: %d, %#v\n", len(read), read)
 }
