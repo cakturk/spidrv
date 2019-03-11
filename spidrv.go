@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -65,7 +67,87 @@ func signExtend24to32(x uint32) int32 {
 	return int32((x ^ mask) - mask)
 }
 
+var (
+	hz = physic.MegaHertz
+
+	dev      = flag.String("d", "/dev/spidev2.0", "device to use (default /dev/spidev2.0")
+	bpw      = flag.Uint("bpw", 8, "bits per word")
+	mode     = flag.Int("mode", int(spi.Mode2), "CLK and data polarity, between 0 and 3")
+	lsbfirst = flag.Bool("lsb", false, "lsb first (default is msb)")
+	nocs     = flag.Bool("nocs", false, "do not assert the CS line")
+	half     = flag.Bool("half", false, "half duplex mode, sharing MOSI and MISO")
+	bits     = flag.Int("bits", 8, "bits per word")
+	dump     = flag.Bool("dump", false, "dump these variables via periph.io")
+	dump2    = flag.Bool("dump2", false, "dump variables manually")
+	verbose  = flag.Bool("v", false, "verbose mode")
+
+	useRead = flag.Bool("r", false, "use read(2) instead of ioctl(2)")
+	length  = flag.Int("l", 24, "number of bytes to read/ioctl from SPI device")
+
+	m = spi.Mode(0)
+)
+
+func spiInit() error {
+	flag.Var(&hz, "hz", "SPI port max speed (Hz)")
+	flag.Parse()
+	log.SetFlags(log.Lshortfile)
+
+	if *mode < 0 || *mode > 3 {
+		return errors.New("invalid mode")
+	}
+	if *bits < 1 || *bits > 255 {
+		return errors.New("invalid bits")
+	}
+	m = spi.Mode(*mode)
+	if *half {
+		m |= spi.HalfDuplex
+	}
+	if *nocs {
+		m |= spi.NoCS
+	}
+	if *lsbfirst {
+		m |= spi.LSBFirst
+	}
+	if *dump2 {
+		dup := "full"
+		if *half {
+			dup = "half"
+		}
+		cs := "cs"
+		if *nocs {
+			cs = "nocs"
+		}
+		lsb := "msbfirst"
+		if *lsbfirst {
+			lsb = "lsbfirst"
+		}
+		fmt.Printf(
+			"dev: %s, mode: %v, bits: %d, duplex: %s, cs: %s, byteorder: %s, speed: %v\n",
+			*dev, *mode, *bpw, dup, cs, lsb, hz,
+		)
+	}
+	if *dump {
+		fmt.Printf(
+			"dev: %s, speed: %v, mode: %s\n",
+			*dev, hz, m,
+		)
+	}
+	return nil
+}
+
+func doTx(c spi.Conn, b []byte) error {
+	wr := make([]byte, len(b))
+	return c.Tx(wr, b)
+}
+
+func doRead(c spi.Conn, b []byte) error {
+	return nil
+}
+
 func main() {
+	if err := spiInit(); err != nil {
+		log.Fatal(err)
+	}
 	// Make sure periph is initialized.
 	var err error
 	if _, err = host.Init(); err != nil {
@@ -73,18 +155,23 @@ func main() {
 	}
 
 	// Use spireg SPI port registry to find the first available SPI bus.
-	p, err := spireg.Open("2")
+	p, err := spireg.Open(*dev)
 	if err != nil {
 		log.Fatal(err)
 	}
-	// defer p.Close()
+	defer p.Close()
 
 	// Convert the spi.Port into a spi.Conn so it can be used for communication.
-	c, err := p.Connect(500*physic.KiloHertz, spi.Mode2, 8)
+	c, err := p.Connect(hz, m, *bits)
 	if err != nil {
 		log.Fatal(err)
 	}
-	_ = c
+
+	if *verbose {
+		if p, ok := c.(spi.Pins); ok {
+			log.Printf("Using pins CLK: %s  MOSI: %s  MISO:  %s", p.CLK(), p.MOSI(), p.MISO())
+		}
+	}
 
 	// write := []byte{0x10, 0x00, 0x00}
 	write := [24]byte{}
