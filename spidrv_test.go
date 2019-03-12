@@ -2,6 +2,7 @@ package main
 
 import (
 	"math"
+	"os"
 	"testing"
 )
 
@@ -58,11 +59,25 @@ func TestMap(t *testing.T) {
 	}{
 		{MinInt24, math.MinInt16},
 		{MaxInt24, math.MaxInt16},
+		{0, -1},
 	}
 	for _, c := range cases {
 		got := mapToInt16(c.in)
 		if got != c.want {
 			t.Errorf("map(%d)=%d,  want: %d", c.in, got, c.want)
 		}
+	}
+}
+
+func TestReadNTimes(t *testing.T) {
+	null, _ := os.Open("/dev/null")
+	os.Stdout = null
+	f, err := os.Open("/dev/urandom")
+	if err != nil {
+		t.Errorf("error opening file: %v", err)
+	}
+	err = readNTimes(f, make([]byte, 24), 4)
+	if err != nil {
+		t.Errorf("failed: %v", err)
 	}
 }

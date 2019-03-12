@@ -21,8 +21,7 @@ func catchSignals(atexit func()) {
 	sigc := make(chan os.Signal, 1)
 	signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM)
 	s := <-sigc
-	_ = s
-	// fmt.Fprintf(os.Stderr, "received signal: %v, terminating!\n", s)
+	fmt.Fprintf(os.Stderr, "received signal: %v, terminating!\n", s)
 	if atexit != nil {
 		atexit()
 	}
@@ -44,11 +43,11 @@ const (
 )
 
 func mapToInt16(i int32) int16 {
-	return int16(remap(int(i), int(MinInt24), int(MaxInt24), math.MinInt16, math.MaxInt16))
+	return int16(remap(int64(i), int64(MinInt24), int64(MaxInt24), math.MinInt16, math.MaxInt16))
 }
 
-func remap(val, inMin, inMax, outMin, outMax int) int {
-	return (val-inMin)*(outMax-outMin)/(inMax-inMin) + outMin
+func remap(val, inMin, inMax, outMin, outMax int64) int32 {
+	return int32((val-inMin)*(outMax-outMin)/(inMax-inMin) + outMin)
 }
 
 func be24toCPU32(b []byte) uint32 {
@@ -83,6 +82,7 @@ var (
 
 	useRead = flag.Bool("r", false, "use read(2) instead of ioctl(2)")
 	length  = flag.Int("l", 24, "number of bytes to read/ioctl from SPI device")
+	txCount = flag.Int("tcount", 1, "how many transfers you want to perform")
 
 	m = spi.Mode(0)
 )
@@ -123,7 +123,7 @@ func spiInit() error {
 		}
 		fmt.Printf(
 			"dev: %s, mode: %v, bits: %d, duplex: %s, cs: %s, byteorder: %s, speed: %v\n",
-			*dev, *mode, *bpw, dup, cs, lsb, hz,
+			*dev, spi.Mode(*mode), *bpw, dup, cs, lsb, hz,
 		)
 	}
 	if *dump {
@@ -132,15 +132,6 @@ func spiInit() error {
 			*dev, hz, m,
 		)
 	}
-	return nil
-}
-
-func doTx(c spi.Conn, b []byte) error {
-	wr := make([]byte, len(b))
-	return c.Tx(wr, b)
-}
-
-func doRead(c spi.Conn, b []byte) error {
 	return nil
 }
 
@@ -173,36 +164,53 @@ func main() {
 		}
 	}
 
-	// write := []byte{0x10, 0x00, 0x00}
-	write := [24]byte{}
-	read := make([]byte, len(write))
-
-	// Write 0x10 to the device, and read a byte right after.
-	// write := []byte{0x10, 0x00}
-	if err := c.Tx(write[:], read); err != nil {
+	var r io.Reader
+	if *useRead {
+		r, err = spiConnToReader(c)
+		if err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		r = &txReader{
+			conn: c,
+			w:    make([]byte, *length),
+		}
+	}
+	if err := readNTimes(r, make([]byte, *length), *txCount); err != nil {
 		log.Fatal(err)
 	}
+}
 
-	i, j := 0, 3
-	var uints []uint32
-	for j <= len(read) {
-		h := read[i:j]
-		u := be24toCPU32(h)
-		uints = append(uints, u)
-		fmt.Printf("%#x ", u)
-		i, j = i+3, j+3
+type txReader struct {
+	conn spi.Conn
+	w    []byte
+}
+
+func (t *txReader) Read(p []byte) (n int, err error) {
+	n = len(p)
+	if len(t.w) < n {
+		t.w = make([]byte, n)
 	}
-	fmt.Println()
-	var ints []int32
-	for _, ui := range uints {
-		si := signExtend24to32(ui)
-		ints = append(ints, si)
-		fmt.Printf("%#x ", uint32(si))
+	return n, t.conn.Tx(t.w, p)
+}
+
+func readNTimes(r io.Reader, p []byte, n int) error {
+	for ; n > 0; n-- {
+		m, err := r.Read(p)
+		if err != nil {
+			return err
+		}
+		if m < len(p) {
+			return fmt.Errorf("readNTimes: short read")
+		}
+		var i, j int
+		for i, j = 0, 3; j <= len(p); i, j = i+3, j+3 {
+			u24 := be24toCPU32(p[i:j])
+			i32 := signExtend24to32(u24)
+			s := mapToInt16(i32)
+			fmt.Printf("%d:%d:%d ", u24, i32, s)
+		}
+		fmt.Println()
 	}
-	fmt.Println()
-	for _, s := range ints {
-		fmt.Printf("%d ", s)
-	}
-	fmt.Println()
-	fmt.Printf("len: %d, %#v\n", len(read), read)
+	return nil
 }
