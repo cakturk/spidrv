@@ -79,6 +79,7 @@ var (
 	dump     = flag.Bool("dump", false, "dump these variables via periph.io")
 	dump2    = flag.Bool("dump2", false, "dump variables manually")
 	verbose  = flag.Bool("v", false, "verbose mode")
+	raw      = flag.Bool("raw", false, "print raw bytes")
 
 	useRead = flag.Bool("r", false, "use read(2) instead of ioctl(2)")
 	length  = flag.Int("l", 24, "number of bytes to read/ioctl from SPI device")
@@ -203,14 +204,28 @@ func readNTimes(r io.Reader, p []byte, n int) error {
 		if m < len(p) {
 			return fmt.Errorf("readNTimes: short read")
 		}
+		var u24s []uint32
+		var i32s []int32
+		var scaled []int16
+		if *raw {
+			fmt.Printf("%#v\n", p)
+		}
 		var i, j int
 		for i, j = 0, 3; j <= len(p); i, j = i+3, j+3 {
 			u24 := be24toCPU32(p[i:j])
 			i32 := signExtend24to32(u24)
 			s := mapToInt16(i32)
-			fmt.Printf("%d:%d:%d ", u24, i32, s)
+			scaled = append(scaled, s)
+			if *raw {
+				u24s = append(u24s, u24)
+				i32s = append(i32s, i32)
+			}
 		}
-		fmt.Println()
+		if *raw {
+			fmt.Printf("%#v\n", u24s)
+			fmt.Printf("%#v\n", i32s)
+		}
+		fmt.Printf("%v\n", scaled)
 	}
 	return nil
 }
