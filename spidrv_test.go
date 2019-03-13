@@ -59,6 +59,7 @@ func TestMap(t *testing.T) {
 	}{
 		{MinInt24, math.MinInt16},
 		{MaxInt24, math.MaxInt16},
+		{1500000, 5858},
 		{0, -1},
 	}
 	for _, c := range cases {
@@ -69,7 +70,51 @@ func TestMap(t *testing.T) {
 	}
 }
 
+func TestMapper16(t *testing.T) {
+	m, err := newMapper(MinInt24, MaxInt24, math.MinInt16, math.MaxInt16)
+	if err != nil {
+		t.Error(err)
+	}
+	cases := []struct {
+		in   int32
+		want int32
+	}{
+		{MinInt24, math.MinInt16},
+		{MaxInt24, math.MaxInt16},
+		{1500000, 5858},
+		{0, -1},
+	}
+	for _, c := range cases {
+		got := m.remap(c.in)
+		if got != c.want {
+			t.Errorf("remap(%d)=%d,  want: %d", c.in, got, c.want)
+		}
+	}
+}
+
+func TestMapper8(t *testing.T) {
+	m, err := newMapper(MinInt24, MaxInt24, math.MinInt8, math.MaxInt8)
+	if err != nil {
+		t.Error(err)
+	}
+	cases := []struct {
+		in   int32
+		want int32
+	}{
+		{MinInt24, math.MinInt8},
+		{MaxInt24, math.MaxInt8},
+		{0, -1},
+	}
+	for _, c := range cases {
+		got := m.remap(c.in)
+		if got != c.want {
+			t.Errorf("map(%d)=%d,  want: %d", c.in, got, c.want)
+		}
+	}
+}
+
 func TestReadNTimes(t *testing.T) {
+	saved := os.Stdout
 	null, _ := os.Open("/dev/null")
 	os.Stdout = null
 	f, err := os.Open("/dev/urandom")
@@ -79,5 +124,27 @@ func TestReadNTimes(t *testing.T) {
 	err = readNTimes(f, make([]byte, 24), 4)
 	if err != nil {
 		t.Errorf("failed: %v", err)
+	}
+	os.Stdout = saved
+}
+
+var resultMap int16
+
+func BenchmarkMap(b *testing.B) {
+	cases := []int32{-32768, -312, 3287871, -8388608, 8388607}
+	n := len(cases)
+	for i := 0; i < b.N; i++ {
+		resultMap = mapToInt16(cases[i%n])
+	}
+}
+
+var resultMapper int32
+
+func BenchmarkMapper(b *testing.B) {
+	m, _ := newMapper(MinInt24, MaxInt24, math.MinInt8, math.MaxInt8)
+	cases := []int32{-32768, -312, 3287871, -8388608, 8388607}
+	n := len(cases)
+	for i := 0; i < b.N; i++ {
+		resultMapper = m.remap(cases[i%n])
 	}
 }
