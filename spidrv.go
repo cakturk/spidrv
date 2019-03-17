@@ -10,7 +10,10 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"periph.io/x/periph/conn/gpio"
+	"periph.io/x/periph/conn/gpio/gpioreg"
 	"periph.io/x/periph/conn/physic"
 	"periph.io/x/periph/conn/spi"
 	"periph.io/x/periph/conn/spi/spireg"
@@ -85,10 +88,15 @@ var (
 	length  = flag.Int("l", 24, "number of bytes to read/ioctl from SPI device")
 	txCount = flag.Int("tcount", 1, "how many transfers you want to perform")
 
+	// gpio flags
+	pullUp   = flag.Bool("up", false, "pull up")
+	pullDown = flag.Bool("dw", false, "pull down")
+	edges    = flag.Bool("e", false, "wait for edges")
+
 	m = spi.Mode(0)
 )
 
-func spiInit() error {
+func flagsInit() error {
 	flag.Var(&hz, "hz", "SPI port max speed (Hz)")
 	flag.Parse()
 	log.SetFlags(log.Lshortfile)
@@ -136,8 +144,37 @@ func spiInit() error {
 	return nil
 }
 
+func gpioInit() (gpio.PinIO, error) {
+	if flag.NArg() != 1 {
+		return nil, errors.New("specify GPIO pin to read")
+	}
+	p := gpioreg.ByName(flag.Args()[0])
+	if p == nil {
+		return nil, errors.New("specify a valid GPIO pin number")
+	}
+	pull := gpio.Float
+	if *pullUp {
+		if *pullDown {
+			return nil, errors.New("use only one of -d or -u")
+		}
+		pull = gpio.PullUp
+	}
+	if *pullDown {
+		pull = gpio.PullDown
+	}
+	edge := gpio.NoEdge
+	if *edges {
+		edge = gpio.FallingEdge
+	}
+	_ = edge
+	if err := p.In(pull, gpio.RisingEdge); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
 func main() {
-	if err := spiInit(); err != nil {
+	if err := flagsInit(); err != nil {
 		log.Fatal(err)
 	}
 	// Make sure periph is initialized.
@@ -164,6 +201,10 @@ func main() {
 			log.Printf("Using pins CLK: %s  MOSI: %s  MISO:  %s", p.CLK(), p.MOSI(), p.MISO())
 		}
 	}
+	drdy, err := gpioInit()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	var r io.Reader
 	if *useRead {
@@ -177,8 +218,14 @@ func main() {
 			w:    make([]byte, *length),
 		}
 	}
-	if err := readNTimes(r, make([]byte, *length), *txCount); err != nil {
-		log.Fatal(err)
+	if *edges {
+		if err := readDrdyNTimes(drdy, r, make([]byte, *length), *txCount); err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		if err := readNTimes(r, make([]byte, *length), *txCount); err != nil {
+			log.Fatal(err)
+		}
 	}
 }
 
@@ -197,35 +244,70 @@ func (t *txReader) Read(p []byte) (n int, err error) {
 
 func readNTimes(r io.Reader, p []byte, n int) error {
 	for ; n > 0; n-- {
-		m, err := r.Read(p)
+		err := readGen(r, p, n)
 		if err != nil {
 			return err
 		}
-		if m < len(p) {
-			return fmt.Errorf("readNTimes: short read")
-		}
-		var u24s []uint32
-		var i32s []int32
-		var scaled []int16
-		if *raw {
-			fmt.Printf("%#v\n", p)
-		}
-		var i, j int
-		for i, j = 0, 3; j <= len(p); i, j = i+3, j+3 {
-			u24 := be24toCPU32(p[i:j])
-			i32 := signExtend24to32(u24)
-			s := mapToInt16(i32)
-			scaled = append(scaled, s)
-			if *raw {
-				u24s = append(u24s, u24)
-				i32s = append(i32s, i32)
-			}
-		}
-		if *raw {
-			fmt.Printf("%#v\n", u24s)
-			fmt.Printf("%#v\n", i32s)
-		}
-		fmt.Printf("%v\n", scaled)
 	}
+	return nil
+}
+
+func readDrdyNTimes(pin gpio.PinIO, r io.Reader, p []byte, n int) error {
+	err := readGen(r, p, n)
+	if err != nil {
+		return err
+	}
+	for ; n > 0; n-- {
+		if ok := pin.WaitForEdge(3 * time.Millisecond); !ok {
+		}
+		err := readGen(r, p, n)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+var mapr *mapper
+
+// generic read
+func readGen(r io.Reader, p []byte, n int) error {
+	var err error
+	if mapr == nil {
+		mapr, err = newMapper(MinInt24, MaxInt24, math.MinInt8, math.MaxInt8)
+		if err != nil {
+			return err
+		}
+	}
+	m, err := r.Read(p)
+	if err != nil {
+		return err
+	}
+	if m < len(p) {
+		return fmt.Errorf("readNTimes: short read")
+	}
+	var u24s []uint32
+	var i32s []int32
+	var scaled []int16
+	if *raw {
+		fmt.Printf("%#v\n", p)
+	}
+	var i, j int
+	for i, j = 0, 3; j <= len(p); i, j = i+3, j+3 {
+		u24 := be24toCPU32(p[i:j])
+		i32 := signExtend24to32(u24)
+		// s := mapToInt16(i32)
+		s := int16(mapr.remap(i32))
+		scaled = append(scaled, s)
+		if *raw {
+			u24s = append(u24s, u24)
+			i32s = append(i32s, i32)
+		}
+	}
+	if *raw {
+		fmt.Printf("%#v\n", u24s)
+		fmt.Printf("%#v\n", i32s)
+	}
+	fmt.Printf("%v\n", scaled)
 	return nil
 }
