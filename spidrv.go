@@ -201,10 +201,6 @@ func main() {
 			log.Printf("Using pins CLK: %s  MOSI: %s  MISO:  %s", p.CLK(), p.MOSI(), p.MISO())
 		}
 	}
-	drdy, err := gpioInit()
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	var r io.Reader
 	if *useRead {
@@ -219,6 +215,10 @@ func main() {
 		}
 	}
 	if *edges {
+		drdy, err := gpioInit()
+		if err != nil {
+			log.Fatal(err)
+		}
 		if err := readDrdyNTimes(drdy, r, make([]byte, *length), *txCount); err != nil {
 			log.Fatal(err)
 		}
