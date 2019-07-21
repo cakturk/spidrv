@@ -270,6 +270,10 @@ func readDrdyNTimes(pin gpio.PinIO, r io.Reader, p []byte, n int) error {
 
 var mapr *mapper
 
+func volt(v int32) float64 {
+	return float64(v) * float64(0.00000029802325940409)
+}
+
 // generic read
 func readGen(r io.Reader, p []byte, n int) error {
 	var err error
@@ -289,6 +293,7 @@ func readGen(r io.Reader, p []byte, n int) error {
 	var u24s []uint32
 	var i32s []int32
 	var scaled []int16
+	var volts []float64
 	if *raw {
 		fmt.Printf("%#v\n", p)
 	}
@@ -299,15 +304,22 @@ func readGen(r io.Reader, p []byte, n int) error {
 		// s := mapToInt16(i32)
 		s := int16(mapr.remap(i32))
 		scaled = append(scaled, s)
-		if *raw {
-			u24s = append(u24s, u24)
-			i32s = append(i32s, i32)
+		if *raw || true {
+			// u24s = append(u24s, u24)
+			// i32s = append(i32s, i32)
+			f := volt(i32)
+			if f > -0.2 {
+				f = 0.0
+			}
+			volts = append(volts, f)
 		}
 	}
 	if *raw {
 		fmt.Printf("%#v\n", u24s)
 		fmt.Printf("%#v\n", i32s)
+		// fmt.Printf("%v, %v\n", scaled, float64(i32s[0])*float64(0.00000029802325940409))
 	}
-	fmt.Printf("%v\n", scaled)
+	// fmt.Printf("%v, %v\n", scaled, float64(i32s[0])*float64(0.00000029802325940409))
+	fmt.Printf("%v\n", volts)
 	return nil
 }
